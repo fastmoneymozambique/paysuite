@@ -4,9 +4,10 @@ const axios = require("axios");
 const crypto = require("crypto");
 const bodyParser = require("body-parser");
 const fs = require("fs");
+const cors = require("cors");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // --- CONFIG ---
 const API_TOKEN = "1546|AYQ8RP3a9hCT9BOfArr36tM8QwgFtMbYqlQ9cJPVf0a30f4e";
@@ -14,6 +15,7 @@ const WEBHOOK_SECRET = "whsec_7184a5b561e87ec3db0a23c402c8390cfdcb81bfc3a4dc1b";
 
 // --- MIDDLEWARE ---
 app.use(bodyParser.json());
+app.use(cors()); // libera CORS para qualquer domínio
 
 // --- Criar Payment Request ---
 app.post("/create_payment", async (req, res) => {
@@ -22,7 +24,7 @@ app.post("/create_payment", async (req, res) => {
         reference: req.body.reference || "TEST123",
         description: req.body.description || "Pagamento teste",
         return_url: req.body.return_url || "https://example.com/success",
-        callback_url: req.body.callback_url || `http://localhost:${PORT}/webhook`
+        callback_url: req.body.callback_url || `https://paysuite.onrender.com/webhook`
     };
 
     try {
@@ -53,4 +55,8 @@ app.post("/webhook", (req, res) => {
     res.json({status:"success"});
 });
 
-app.listen(PORT, () => console.log(`Backend rodando em http://localhost:${PORT}`));
+app.get("/", (req, res) => {
+    res.send("Backend PaySuite ativo!");
+});
+
+app.listen(PORT, () => console.log(`Backend rodando em https://paysuite.onrender.com`));
