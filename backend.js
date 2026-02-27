@@ -1,62 +1,121 @@
-// backend.js
 const express = require("express");
+const mongoose = require("mongoose");
+const bcrypt = require("bcrypt");
+const bodyParser = require("body-parser");
+const cors = require("cors");
 const axios = require("axios");
 const crypto = require("crypto");
-const bodyParser = require("body-parser");
-const fs = require("fs");
-const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- CONFIG ---
+// --- CONFIG PaySuite ---
 const API_TOKEN = "1546|AYQ8RP3a9hCT9BOfArr36tM8QwgFtMbYqlQ9cJPVf0a30f4e";
 const WEBHOOK_SECRET = "whsec_7184a5b561e87ec3db0a23c402c8390cfdcb81bfc3a4dc1b";
 
 // --- MIDDLEWARE ---
 app.use(bodyParser.json());
-app.use(cors()); // libera CORS para qualquer domínio
+app.use(cors());
 
-// --- Criar Payment Request ---
+// --- MONGODB ---
+const MONGO_URI = "mongodb+srv://gogonegogone8_db_user:RA8De5K0v2KfdSBf@cluster0.kkwnihd.mongodb.net/kkr_credit_db?retryWrites=true&w=majority&appName=Cluster0";
+
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log("MongoDB conectado"))
+    .catch(err => console.log("Erro MongoDB:", err));
+
+// --- SCHEMAS ---
+const userSchema = new mongoose.Schema({
+    number: { type: String, unique: true },
+    password: String
+});
+
+const paymentSchema = new mongoose.Schema({
+    userId: mongoose.Schema.Types.ObjectId,
+    amount: Number,
+    reference: String,
+    method: String,
+    status: { type: String, default: "pending" },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model("User", userSchema);
+const Payment = mongoose.model("Payment", paymentSchema);
+
+// --- ROTAS ---
+// Cadastro
+app.post("/signup", async (req, res) => {
+    const { number, password } = req.body;
+    if(!number || !password) return res.status(400).json({status:"error", message:"Preencha número e senha"});
+    try {
+        const hash = await bcrypt.hash(password, 10);
+        const user = await User.create({ number, password: hash });
+        res.json({status:"success", userId: user._id});
+    } catch (err) {
+        res.status(400).json({status:"error", message: "Número já cadastrado"});
+    }
+});
+
+// Login
+app.post("/login", async (req, res) => {
+    const { number, password } = req.body;
+    const user = await User.findOne({ number });
+    if(!user) return res.status(400).json({status:"error", message:"Número não cadastrado"});
+    const match = await bcrypt.compare(password, user.password);
+    if(!match) return res.status(400).json({status:"error", message:"Senha incorreta"});
+    res.json({status:"success", userId: user._id});
+});
+
+// Criar pagamento
 app.post("/create_payment", async (req, res) => {
-    const data = {
-        amount: req.body.amount || 100.50,
-        reference: req.body.reference || "TEST123",
-        description: req.body.description || "Pagamento teste",
-        return_url: req.body.return_url || "https://example.com/success",
-        callback_url: req.body.callback_url || `https://paysuite.onrender.com/webhook`
-    };
+    const { userId, amount, reference, method, customer } = req.body;
+    if(!userId || !amount || !reference || !method || !customer) 
+        return res.status(400).json({status:"error", message:"Dados incompletos"});
 
     try {
-        const response = await axios.post("https://paysuite.tech/api/v1/payments", data, {
+        // Cria payment request no PaySuite
+        const response = await axios.post("https://paysuite.tech/api/v1/payments", {
+            amount, reference, method,
+            return_url: "https://example.com/success",
+            callback_url: `https://paysuite.onrender.com/webhook`
+        }, {
             headers: {
                 Authorization: `Bearer ${API_TOKEN}`,
                 "Content-Type": "application/json",
                 Accept: "application/json"
             }
         });
-        res.json(response.data);
+
+        const checkout_url = response.data.data.checkout_url;
+
+        // Salva pagamento no Mongo
+        await Payment.create({ userId, amount, reference, method, status: "pending" });
+
+        res.json({status:"success", checkout_url});
     } catch (err) {
-        res.status(err.response?.status || 500).json(err.response?.data || {status:"error", message:"Erro interno"});
+        res.status(500).json({status:"error", message:"Erro ao criar pagamento"});
     }
 });
 
-// --- Webhook Receiver ---
-app.post("/webhook", (req, res) => {
+// Webhook
+app.post("/webhook", async (req, res) => {
     const signature = req.headers["x-webhook-signature"];
     const payload = JSON.stringify(req.body);
     const calculatedSignature = crypto.createHmac("sha256", WEBHOOK_SECRET).update(payload).digest("hex");
 
-    if (signature !== calculatedSignature) {
+    if(signature !== calculatedSignature){
         return res.status(403).json({status:"error", message:"Invalid signature"});
     }
 
-    fs.appendFileSync("webhook_log.json", payload + "\n");
+    const event = req.body;
+    const paymentId = event.data?.reference;
+    const status = event.event === "payment.success" ? "paid" : "failed";
+
+    // Atualiza pagamento no Mongo
+    await Payment.findOneAndUpdate({ reference: paymentId }, { status });
+
     res.json({status:"success"});
 });
 
-app.get("/", (req, res) => {
-    res.send("Backend PaySuite ativo!");
-});
-
+// --- START ---
 app.listen(PORT, () => console.log(`Backend rodando em https://paysuite.onrender.com`));
