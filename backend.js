@@ -75,7 +75,7 @@ app.post("/create_payment", async (req, res) => {
     try {
         // Cria payment request no PaySuite
         const response = await axios.post("https://paysuite.tech/api/v1/payments", {
-            amount,
+            amount: Number(amount), // garante que é número
             reference,
             return_url: "https://successpaymoz.netlify.app/succes",
             callback_url: "https://paysuite.onrender.com/webhook"
@@ -90,12 +90,12 @@ app.post("/create_payment", async (req, res) => {
         const checkout_url = response.data.data.checkout_url;
 
         // Salva pagamento no Mongo
-        await Payment.create({ userId, amount, reference, status: "pending" });
+        await Payment.create({ userId, amount: Number(amount), reference, status: "pending" });
 
         res.json({status:"success", checkout_url});
     } catch (err) {
-        console.error(err.response?.data || err.message);
-        res.status(500).json({status:"error", message:"Erro ao criar pagamento"});
+        console.error("Erro PaySuite:", err.response?.data || err.message);
+        res.status(500).json({status:"error", message:"Erro ao criar pagamento", details: err.response?.data});
     }
 });
 
