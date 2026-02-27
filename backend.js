@@ -9,7 +9,7 @@ const crypto = require("crypto");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- CONFIG PaySuite ---
+// --- CONFIGURAÇÃO PAYSUITE ---
 const API_TOKEN = "1546|AYQ8RP3a9hCT9BOfArr36tM8QwgFtMbYqlQ9cJPVf0a30f4e";
 const WEBHOOK_SECRET = "whsec_7184a5b561e87ec3db0a23c402c8390cfdcb81bfc3a4dc1b";
 
@@ -27,7 +27,8 @@ mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
 // --- SCHEMAS ---
 const userSchema = new mongoose.Schema({
     number: { type: String, unique: true },
-    password: String
+    password: String,
+    plan: { type: String, default: "free" } // Free ou Pro
 });
 
 const paymentSchema = new mongoose.Schema({
@@ -49,7 +50,7 @@ app.post("/signup", async (req, res) => {
     try {
         const hash = await bcrypt.hash(password, 10);
         const user = await User.create({ number, password: hash });
-        res.json({status:"success", userId: user._id});
+        res.json({status:"success", userId: user._id, plan: user.plan});
     } catch (err) {
         res.status(400).json({status:"error", message: "Número já cadastrado"});
     }
@@ -62,10 +63,10 @@ app.post("/login", async (req, res) => {
     if(!user) return res.status(400).json({status:"error", message:"Número não cadastrado"});
     const match = await bcrypt.compare(password, user.password);
     if(!match) return res.status(400).json({status:"error", message:"Senha incorreta"});
-    res.json({status:"success", userId: user._id});
+    res.json({status:"success", userId: user._id, plan: user.plan});
 });
 
-// Criar pagamento (simplificado)
+// Criar pagamento para upgrade de plano
 app.post("/create_payment", async (req, res) => {
     const { userId, amount, reference } = req.body;
     if(!userId || !amount || !reference)
@@ -76,7 +77,7 @@ app.post("/create_payment", async (req, res) => {
         const response = await axios.post("https://paysuite.tech/api/v1/payments", {
             amount,
             reference,
-            return_url: "https://successpaymoz.netlify.app/succes",  // você pode mudar depois
+            return_url: "https://successpaymoz.netlify.app/succes",
             callback_url: "https://paysuite.onrender.com/webhook"
         }, {
             headers: {
@@ -93,11 +94,12 @@ app.post("/create_payment", async (req, res) => {
 
         res.json({status:"success", checkout_url});
     } catch (err) {
+        console.error(err.response?.data || err.message);
         res.status(500).json({status:"error", message:"Erro ao criar pagamento"});
     }
 });
 
-// Webhook
+// Webhook PaySuite
 app.post("/webhook", async (req, res) => {
     const signature = req.headers["x-webhook-signature"];
     const payload = JSON.stringify(req.body);
@@ -111,7 +113,14 @@ app.post("/webhook", async (req, res) => {
     const paymentId = event.data?.reference;
     const status = event.event === "payment.success" ? "paid" : "failed";
 
-    await Payment.findOneAndUpdate({ reference: paymentId }, { status });
+    // Atualiza status do pagamento
+    const payment = await Payment.findOneAndUpdate({ reference: paymentId }, { status }, { new: true });
+
+    // Se pagamento deu certo, sobe plano do usuário para Pro
+    if(status === "paid" && payment){
+        await User.findByIdAndUpdate(payment.userId, { plan: "pro" });
+        console.log(`Usuário ${payment.userId} atualizado para plano PRO`);
+    }
 
     res.json({status:"success"});
 });
