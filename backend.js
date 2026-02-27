@@ -76,7 +76,7 @@ app.post("/create_payment", async (req, res) => {
         const response = await axios.post("https://paysuite.tech/api/v1/payments", {
             amount,
             reference,
-            return_url: "https://example.com/success",  // você pode mudar depois
+            return_url: "https://successpaymoz.netlify.app/succes",  // você pode mudar depois
             callback_url: "https://paysuite.onrender.com/webhook"
         }, {
             headers: {
