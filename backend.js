@@ -69,8 +69,9 @@ app.post("/login", async (req, res) => {
 
 // Criar pagamento para upgrade de plano
 app.post("/create_payment", async (req, res) => {
-    const { userId, amount, reference } = req.body;
-    if(!userId || !amount || !reference)
+    const { userId, reference } = req.body;
+    const amount = 10; // preço Pro agora é 10 MZN
+    if(!userId || !reference)
         return res.status(400).json({status:"error", message:"Dados incompletos"});
 
     try {
