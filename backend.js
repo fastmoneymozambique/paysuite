@@ -34,7 +34,6 @@ const paymentSchema = new mongoose.Schema({
     userId: mongoose.Schema.Types.ObjectId,
     amount: Number,
     reference: String,
-    method: String,
     status: { type: String, default: "pending" },
     createdAt: { type: Date, default: Date.now }
 });
@@ -66,18 +65,19 @@ app.post("/login", async (req, res) => {
     res.json({status:"success", userId: user._id});
 });
 
-// Criar pagamento
+// Criar pagamento (simplificado)
 app.post("/create_payment", async (req, res) => {
-    const { userId, amount, reference, method, customer } = req.body;
-    if(!userId || !amount || !reference || !method || !customer) 
+    const { userId, amount, reference } = req.body;
+    if(!userId || !amount || !reference)
         return res.status(400).json({status:"error", message:"Dados incompletos"});
 
     try {
         // Cria payment request no PaySuite
         const response = await axios.post("https://paysuite.tech/api/v1/payments", {
-            amount, reference, method,
-            return_url: "https://example.com/success",
-            callback_url: `https://paysuite.onrender.com/webhook`
+            amount,
+            reference,
+            return_url: "https://example.com/success",  // você pode mudar depois
+            callback_url: "https://paysuite.onrender.com/webhook"
         }, {
             headers: {
                 Authorization: `Bearer ${API_TOKEN}`,
@@ -89,7 +89,7 @@ app.post("/create_payment", async (req, res) => {
         const checkout_url = response.data.data.checkout_url;
 
         // Salva pagamento no Mongo
-        await Payment.create({ userId, amount, reference, method, status: "pending" });
+        await Payment.create({ userId, amount, reference, status: "pending" });
 
         res.json({status:"success", checkout_url});
     } catch (err) {
@@ -111,7 +111,6 @@ app.post("/webhook", async (req, res) => {
     const paymentId = event.data?.reference;
     const status = event.event === "payment.success" ? "paid" : "failed";
 
-    // Atualiza pagamento no Mongo
     await Payment.findOneAndUpdate({ reference: paymentId }, { status });
 
     res.json({status:"success"});
